@@ -44,9 +44,10 @@ def train(args):
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
-    update_ops.extend(train_gmm_op)
+
     with tf.control_dependencies(update_ops):
-        train_op = optimizer.minimize(loss)
+        with tf.control_dependencies(train_gmm_op):
+            train_op = optimizer.minimize(loss)
 
     tf.summary.scalar('loss', loss)
     tf.summary.scalar('loss_reconstruction', loss_reconstruction)
@@ -74,9 +75,7 @@ def train(args):
             sess.run(training_iterator.initializer)
             while True:
                 try:
-                    _, l, les, lr, lsd, summ = sess.run(
-                        [train_op, loss, es_mean, loss_reconstruction, loss_sigmas_diag, summary_op],
-                        feed_dict={handle: training_handle})
+                    _, l, les, lr, lsd, summ = sess.run([train_op, loss, es_mean, loss_reconstruction, loss_sigmas_diag, summary_op], feed_dict={handle: training_handle})
                     if l < 100 and 0 < l < best_loss:
                         print('best: checkpoint-{}-{}'.format(l, global_step + epoch_idx))
                         previous_best = glob.glob(os.path.join(best_folder, 'checkpoint-{}-{}.*'.format(best_loss, best_run)))

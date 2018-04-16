@@ -101,16 +101,16 @@ def dagmm(region_tensors, is_training=True, encoded_dims=2, mixtures=3, lambda_1
         energy = tf.matmul(zs_minus_mus, inversed_sigmas, transpose_a=True)
         energy = tf.matmul(energy, zs_minus_mus)
         energy = tf.squeeze(phis_exp_dims * tf.exp(-0.5 * energy), axis=[2, 3])
-        energy_divided_by = tf.expand_dims(tf.sqrt(2.0 * math.pi * tf.abs(tf.matrix_determinant(sigmas_mat))), axis=0) + 1e-12
+        energy_divided_by = tf.expand_dims(tf.sqrt(2.0 * math.pi * tf.matrix_determinant(sigmas_mat)), axis=0) + 1e-12
         energy = tf.reduce_sum(energy / energy_divided_by, axis=1) + 1e-12
         energy = -1.0 * tf.log(energy)
-        es_mean = tf.reduce_sum(energy) / n_count
+        energy_mean = tf.reduce_sum(energy) / n_count
         loss_sigmas_diag = 1.0 / (tf.matrix_diag_part(sigmas_mat) + 1e-12)
         loss_sigmas_diag = tf.reduce_sum(loss_sigmas_diag)
-        loss = loss_reconstruction + lambda_1 * es_mean + lambda_2 * loss_sigmas_diag
+        loss = loss_reconstruction + lambda_1 * energy_mean + lambda_2 * loss_sigmas_diag
 
     if is_training:
-        return loss, loss_reconstruction, es_mean, loss_sigmas_diag, train_gmm_op
+        return loss, loss_reconstruction, energy_mean, loss_sigmas_diag, train_gmm_op
     else:
         return energy, z
 
