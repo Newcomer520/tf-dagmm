@@ -66,8 +66,8 @@ def train(args):
         else:
             print('Training models from nothing')
 
-            train_writer = tf.summary.FileWriter('{}/{}/train'.format(args.logdir, global_step), sess.graph)
-            validate_writer = tf.summary.FileWriter('{}/{}/validate'.format(args.logdir, global_step), sess.graph)
+        train_writer = tf.summary.FileWriter('{}/{}/train'.format(args.logdir, global_step), sess.graph)
+        validate_writer = tf.summary.FileWriter('{}/{}/validate'.format(args.logdir, global_step), sess.graph)
 
         training_handle = sess.run(training_iterator.string_handle())
         validation_handle = sess.run(validation_iterator.string_handle())
