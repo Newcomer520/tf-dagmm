@@ -30,24 +30,24 @@ def train(args):
 
     regions = PIN_OBJECT if args.use_pins else MAIN_OBJECT
 
-    image_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, batch_size=args.batch_size)
+    batch_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, batch_size=args.batch_size)
+    is_training_placeholder = tf.placeholder_with_default(tf.constant(True), [])
 
     region_tensors = {}
     for region_name in regions:
-        images = image_tensors[region_name]
+        images = batch_tensors[region_name]
         filters = regions[region_name]['filters']
         scope = regions[region_name]['scope']
         reuse = regions[region_name]['reuse']
         region_tensors[region_name] = {'tensors': images, 'filters': filters, 'reuse': reuse, 'scope': scope}
 
-    loss, loss_reconstruction, es_mean, loss_sigmas_diag, train_gmm_op = dagmm(region_tensors, is_training=True, encoded_dims=args.encoded_dims, mixtures=args.mixtures)
+    *rest, loss, loss_reconstruction, es_mean, loss_sigmas_diag = dagmm(region_tensors, is_training_placeholder, encoded_dims=args.encoded_dims, mixtures=args.mixtures)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
 
     with tf.control_dependencies(update_ops):
-        with tf.control_dependencies(train_gmm_op):
-            train_op = optimizer.minimize(loss)
+        train_op = optimizer.minimize(loss)
 
     tf.summary.scalar('loss', loss)
     tf.summary.scalar('loss_reconstruction', loss_reconstruction)
@@ -66,16 +66,20 @@ def train(args):
         else:
             print('Training models from nothing')
 
-        train_writer = tf.summary.FileWriter('{}/{}'.format(args.logdir, global_step), sess.graph)
+            train_writer = tf.summary.FileWriter('{}/{}/train'.format(args.logdir, global_step), sess.graph)
+            validate_writer = tf.summary.FileWriter('{}/{}/validate'.format(args.logdir, global_step), sess.graph)
 
         training_handle = sess.run(training_iterator.string_handle())
+        validation_handle = sess.run(validation_iterator.string_handle())
         current_step = 0
 
         for epoch_idx in range(args.epoch):
             sess.run(training_iterator.initializer)
             while True:
+                # training loop
                 try:
-                    _, l, les, lr, lsd, summ = sess.run([train_op, loss, es_mean, loss_reconstruction, loss_sigmas_diag, summary_op], feed_dict={handle: training_handle})
+                    _, l, les, lr, lsd, summ_train = sess.run([train_op, loss, es_mean, loss_reconstruction, loss_sigmas_diag, summary_op],
+                                                              feed_dict={handle: training_handle, is_training_placeholder: True})
                     if l < 100 and 0 < l < best_loss:
                         print('best: checkpoint-{}-{}'.format(l, global_step + epoch_idx))
                         previous_best = glob.glob(os.path.join(best_folder, 'checkpoint-{}-{}.*'.format(best_loss, best_run)))
@@ -86,7 +90,6 @@ def train(args):
                         checkpoint_saver.save(sess, os.path.join(
                             best_folder, 'checkpoint-{}'.format(best_loss)), global_step=best_run)
                     current_step += 1
-
                 except tf.errors.OutOfRangeError:
                     break
                 except tf.errors._impl.InvalidArgumentError:
@@ -99,21 +102,35 @@ def train(args):
                     print('Restoring from the best latest checkpoint {}'.format(last_checkpoint))
                     checkpoint_saver.restore(sess, last_checkpoint)
 
+            val_loss = 0
+            val_cnt = 0
+            sess.run(validation_iterator.initializer)
+            while True:
+                # validation loop
+                try:
+                    vl, summ_val = sess.run([loss, summary_op], feed_dict={handle: validation_handle, is_training_placeholder: False})
+                    val_loss += vl
+                    val_cnt += 1
+                except tf.errors.OutOfRangeError:
+                    break
+
             if (global_step + epoch_idx) % 10 == 0:
-                train_writer.add_summary(summ, global_step + epoch_idx)
+                train_writer.add_summary(summ_train, global_step + epoch_idx)
+                validate_writer.add_summary(summ_val, global_step + epoch_idx)
 
             if (global_step + epoch_idx) % 100 == 0:
                 print('checkpoint-{} saved'.format(global_step + epoch_idx))
                 checkpoint_saver.save(sess, os.path.join(
                     args.logdir, 'checkpoint'), global_step=global_step + epoch_idx)
 
-            print('{} current_epoch: {}, {}, {}, {}'.format(global_step + epoch_idx, lr, les, lsd, l))
+            print('{} current_epoch: {}, {}, {}, {}, val loss: {}'.format(global_step + epoch_idx, lr, les, lsd, l, val_loss / val_cnt))
 
 
 def parse_function(filename, regions):
     """
     :param filename:
     :param regions:
+    :param is_training:
     :return:
     """
 
@@ -150,10 +167,10 @@ def make_dataset(regions,
                  batch_size=24,
                  buffer_size=1000):
     training_iterator, training_dataset = get_iterator(regions, train_folder, batch_size, buffer_size=buffer_size)
-    validation_iterator, validation_dataset = get_iterator(regions, validation_folder, batch_size, buffer_size=buffer_size)
+    validation_iterator, validation_dataset = get_iterator(regions, validation_folder, 1000, buffer_size=buffer_size)
     handle = tf.placeholder(tf.string)
-    batch_images = tf.data.Iterator.from_string_handle(handle, output_types=training_dataset.output_types, output_shapes=training_dataset.output_shapes).get_next()
-    return batch_images, handle, training_iterator, validation_iterator
+    batch_tensors = tf.data.Iterator.from_string_handle(handle, output_types=training_dataset.output_types, output_shapes=training_dataset.output_shapes).get_next()
+    return batch_tensors, handle, training_iterator, validation_iterator
 
 
 if __name__ == '__main__':

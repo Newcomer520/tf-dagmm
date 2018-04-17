@@ -3,15 +3,15 @@ import numpy as np
 from dagmm.AutoEncoder import AutoEncoder
 from dagmm.Estimator import Estimator
 import math
+from functools import partial
 
 
-def dagmm(region_tensors, is_training=True, encoded_dims=2, mixtures=3, lambda_1=0.1, lambda_2=0.005, use_cosine_similarity=False):
+def dagmm(region_tensors, is_training, encoded_dims=2, mixtures=3, lambda_1=0.1, lambda_2=0.005, use_cosine_similarity=False):
     """
-
     dagmm Implementation
 
-    :param region_tensors: dict object like {'}
-    :param is_training:
+    :param region_tensors: restore the related tensors
+    :param is_training: a tensorflow placeholder to indicate whether it is in the training phase or not
     :param encoded_dims:
     :param mixtures:
     :param lambda_1:
@@ -64,17 +64,21 @@ def dagmm(region_tensors, is_training=True, encoded_dims=2, mixtures=3, lambda_1
         sums_exp_dims = tf.expand_dims(sums, axis=-1)
 
         phis_ = sums / n_count
-        phis_mat = phis_ if is_training else phis
         mus_ = tf.matmul(gammas, z, transpose_a=True) / sums_exp_dims
-        mus_mat = mus_ if is_training else mus
 
-        phis_exp_dims = tf.expand_dims(phis_mat, axis=0)
+        def assign_training_phis_mus():
+            with tf.control_dependencies([phis.assign(phis_), mus.assign(mus_)]):
+                return [tf.identity(phis), tf.identity(mus)]
+
+        phis, mus = tf.cond(is_training, assign_training_phis_mus, lambda: [phis, mus])
+
+        phis_exp_dims = tf.expand_dims(phis, axis=0)
         phis_exp_dims = tf.expand_dims(phis_exp_dims, axis=-1)
         phis_exp_dims = tf.expand_dims(phis_exp_dims, axis=-1)
 
         zs_exp_dims = tf.expand_dims(z, 1)
         zs_exp_dims = tf.expand_dims(zs_exp_dims, -1)
-        mus_exp_dims = tf.expand_dims(mus_mat, 0)
+        mus_exp_dims = tf.expand_dims(mus, 0)
         mus_exp_dims = tf.expand_dims(mus_exp_dims, -1)
 
         zs_minus_mus = zs_exp_dims - mus_exp_dims
@@ -86,33 +90,27 @@ def dagmm(region_tensors, is_training=True, encoded_dims=2, mixtures=3, lambda_1
         sigmas_ = tf.reduce_sum(sigmas_, axis=0)
         sigmas_ = sigmas_ / (tf.expand_dims(sums_exp_dims, axis=-1) + 1e-12)
 
-        train_gmm_op = [
-            phis.assign(phis_),
-            mus.assign(mus_),
-            sigmas.assign(sigmas_)
-        ]
-
-        sigmas_mat = sigmas_ if is_training else sigmas
-
+        def assign_training_sigmas():
+            with tf.control_dependencies([sigmas.assign(sigmas_)]):
+                return tf.identity(sigmas)
+        sigmas = tf.cond(is_training, assign_training_sigmas, lambda: sigmas)
+        
     with tf.name_scope('loss'):
         loss_reconstruction = tf.reduce_mean(squared_euclidean, name='loss_reconstruction')
-        inversed_sigmas = tf.expand_dims(tf.matrix_inverse(sigmas_mat), axis=0)
+        inversed_sigmas = tf.expand_dims(tf.matrix_inverse(sigmas), axis=0)
         inversed_sigmas = tf.tile(inversed_sigmas, [tf.shape(zs_minus_mus)[0], 1, 1, 1])
         energy = tf.matmul(zs_minus_mus, inversed_sigmas, transpose_a=True)
         energy = tf.matmul(energy, zs_minus_mus)
         energy = tf.squeeze(phis_exp_dims * tf.exp(-0.5 * energy), axis=[2, 3])
-        energy_divided_by = tf.expand_dims(tf.sqrt(2.0 * math.pi * tf.matrix_determinant(sigmas_mat)), axis=0) + 1e-12
+        energy_divided_by = tf.expand_dims(tf.sqrt(2.0 * math.pi * tf.matrix_determinant(sigmas)), axis=0) + 1e-12
         energy = tf.reduce_sum(energy / energy_divided_by, axis=1) + 1e-12
         energy = -1.0 * tf.log(energy)
         energy_mean = tf.reduce_sum(energy) / n_count
-        loss_sigmas_diag = 1.0 / (tf.matrix_diag_part(sigmas_mat) + 1e-12)
+        loss_sigmas_diag = 1.0 / (tf.matrix_diag_part(sigmas) + 1e-12)
         loss_sigmas_diag = tf.reduce_sum(loss_sigmas_diag)
         loss = loss_reconstruction + lambda_1 * energy_mean + lambda_2 * loss_sigmas_diag
 
-    if is_training:
-        return loss, loss_reconstruction, energy_mean, loss_sigmas_diag, train_gmm_op
-    else:
-        return energy, z
+    return energy, z, loss, loss_reconstruction, energy_mean, loss_sigmas_diag
 
 
 def reconstruction_distances(input_tensor, reconstruction):
