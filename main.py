@@ -10,6 +10,7 @@ from sklearn.metrics import precision_recall_curve
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 from inference import inference, model_for_inference
+from functools import partial
 
 
 def split_train_test_data(wuchi_csv_file='/home/i-lun/Downloads/UPS_0326/test.csv', image_folder='/home/i-lun/ipython/dataset/P8_SMT/cutted/ups/ok'):
@@ -27,10 +28,6 @@ def split_train_test_data(wuchi_csv_file='/home/i-lun/Downloads/UPS_0326/test.cs
             copy2(image_file, test_folder)
         else:
             copy2(image_file, train_folder)
-
-
-def visualize(graph, logs_path='/tmp/tensorflow_logs/example/'):
-    tf.summary.FileWriter(logs_path, graph)
 
 
 def summary_report(inference_fn,
@@ -112,8 +109,8 @@ def main():
     parser = ArgumentParser(description='Train a dagmm.')
     parser.add_argument('--resume', default=False, type=bool)
     parser.add_argument('--epoch', default=50000, type=int)
-    parser.add_argument('--encoded_dims', default=2, type=int)
-    parser.add_argument('--mixtures', default=6, type=int)
+    parser.add_argument('--encoded_dims', default=8, type=int)
+    parser.add_argument('--mixtures', default=8, type=int)
     parser.add_argument('--logdir', default='/home/i-lun/works/smt/tmp2', type=str)
     parser.add_argument('--batch_size', default=38, type=int)
     parser.add_argument('--decay_start', default=1000, type=int)
@@ -122,12 +119,13 @@ def main():
     args = parser.parse_args()
 
     # checkpoint_name = 'no_use_pins/ed2_m6_l10.5/checkpoint-39.78889083862305-1821'
-    # checkpoint_path = os.path.join('/home/i-lun/works/smt/tmp/best', checkpoint_name)
-    # saved_in = os.path.join('/home/i-lun/works/smt/reports/', checkpoint_name)
-    #
-    # region_tensors, energy_tensors, z = model_for_inference(args.encoded_dims, args.mixtures, args.use_pins)
-    # inference_fn = partial(inference, region_tensors=region_tensors, energy_tensors=energy_tensors, checkpoint=checkpoint_path, z=z)
-    # summary_report(inference_fn, saved_in=saved_in)
+    checkpoint_name = 'checkpoint-45.63346481323242-678'
+    checkpoint_path = os.path.join('/home/i-lun/works/smt/e8_m8_l200003/best/', checkpoint_name)
+    saved_in = os.path.join('/home/i-lun/works/smt/reports/refactor/e8_m8_l200003', checkpoint_name)
+
+    region_tensors, energy_tensors, z = model_for_inference(args.encoded_dims, args.mixtures, args.use_pins)
+    inference_fn = partial(inference, region_tensors=region_tensors, energy_tensors=energy_tensors, checkpoint=checkpoint_path, z=z)
+    summary_report(inference_fn, saved_in=saved_in)
 
 
 if __name__ == '__main__':

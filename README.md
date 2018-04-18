@@ -15,7 +15,3 @@ The results didn't perform well however.
 
 ## Train
 * Please take a look at `train.py`
-
-## Issue
-* When the dimension of encoded vector grows large(larger than 4 for example), The issue of "Matrix is uninvertible" will occur during the training. 
-I think it is the singularity issue of GMM(just my guess). Currently I cannot solve this bug. Any suggestion is welcome.

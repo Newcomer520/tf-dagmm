@@ -15,9 +15,6 @@ from argparse import ArgumentParser
 
 
 def train(args):
-    # reference for training/validation:
-    #
-    # input_tensor: [None, 64, 64, 3]
     best_folder = os.path.join(args.logdir, 'best')
     best_run = -1
     best_loss = 1e12
@@ -41,7 +38,8 @@ def train(args):
         reuse = regions[region_name]['reuse']
         region_tensors[region_name] = {'tensors': images, 'filters': filters, 'reuse': reuse, 'scope': scope}
 
-    *rest, loss, loss_reconstruction, es_mean, loss_sigmas_diag = dagmm(region_tensors, is_training_placeholder, encoded_dims=args.encoded_dims, mixtures=args.mixtures)
+    *rest, loss, loss_reconstruction, es_mean, loss_sigmas_diag = dagmm(region_tensors, is_training_placeholder, encoded_dims=args.encoded_dims, mixtures=args.mixtures,
+                                                                        lambda_1=args.lambda1, lambda_2=args.lambda2)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
@@ -80,27 +78,9 @@ def train(args):
                 try:
                     _, l, les, lr, lsd, summ_train = sess.run([train_op, loss, es_mean, loss_reconstruction, loss_sigmas_diag, summary_op],
                                                               feed_dict={handle: training_handle, is_training_placeholder: True})
-                    if l < 100 and 0 < l < best_loss:
-                        print('best: checkpoint-{}-{}'.format(l, global_step + epoch_idx))
-                        previous_best = glob.glob(os.path.join(best_folder, 'checkpoint-{}-{}.*'.format(best_loss, best_run)))
-                        for f in previous_best:
-                            os.remove(os.path.join(best_folder, f))
-                        best_loss = l
-                        best_run = global_step + epoch_idx
-                        checkpoint_saver.save(sess, os.path.join(
-                            best_folder, 'checkpoint-{}'.format(best_loss)), global_step=best_run)
                     current_step += 1
                 except tf.errors.OutOfRangeError:
                     break
-                except tf.errors._impl.InvalidArgumentError:
-                    """
-                    With the higher dimension of encoded vector, it's easy to get the issue of "uninvertable matrix".
-                    Currently I could not solve this problem 
-                    """
-                    print('******** WARNING ********** gmm singularity occurred!')
-                    last_checkpoint = tf.train.latest_checkpoint(args.logdir)
-                    print('Restoring from the best latest checkpoint {}'.format(last_checkpoint))
-                    checkpoint_saver.restore(sess, last_checkpoint)
 
             val_loss = 0
             val_cnt = 0
@@ -114,16 +94,28 @@ def train(args):
                 except tf.errors.OutOfRangeError:
                     break
 
+            val_loss /= val_cnt
+
+            if val_loss < 300 and 0 < val_loss < best_loss:
+                print('best: checkpoint-{}-{}'.format(val_loss, global_step + epoch_idx))
+                previous_best = glob.glob(os.path.join(best_folder, 'checkpoint-{}-{}.*'.format(best_loss, best_run)))
+                for f in previous_best:
+                    os.remove(os.path.join(best_folder, f))
+                best_loss = val_loss
+                best_run = global_step + epoch_idx
+                checkpoint_saver.save(sess, os.path.join(
+                    best_folder, 'checkpoint-{}'.format(best_loss)), global_step=best_run)
+
             if (global_step + epoch_idx) % 10 == 0:
                 train_writer.add_summary(summ_train, global_step + epoch_idx)
                 validate_writer.add_summary(summ_val, global_step + epoch_idx)
 
-            if (global_step + epoch_idx) % 100 == 0:
+            if (global_step + epoch_idx) % 200 == 0:
                 print('checkpoint-{} saved'.format(global_step + epoch_idx))
                 checkpoint_saver.save(sess, os.path.join(
                     args.logdir, 'checkpoint'), global_step=global_step + epoch_idx)
 
-            print('{} current_epoch: {}, {}, {}, {}, val loss: {}'.format(global_step + epoch_idx, lr, les, lsd, l, val_loss / val_cnt))
+            print('{} current_epoch: {}, {}, {}, {}, val loss: {}'.format(global_step + epoch_idx, lr, les, lsd, l, val_loss))
 
 
 def parse_function(filename, regions):
@@ -178,6 +170,8 @@ if __name__ == '__main__':
     parser.add_argument('--resume', default=False, type=bool)
     parser.add_argument('--epoch', default=50000, type=int)
     parser.add_argument('--encoded_dims', default=2, type=int)
+    parser.add_argument('--lambda1', default=0.1, type=float)
+    parser.add_argument('--lambda2', default=0.005, type=float)
     parser.add_argument('--mixtures', default=6, type=int)
     parser.add_argument('--logdir', default='/home/i-lun/works/smt/tmp2', type=str)
     parser.add_argument('--batch_size', default=38, type=int)

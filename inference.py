@@ -21,7 +21,7 @@ def model_for_inference(encoded_dims=2, mixtures=5, use_pins=False):
         tensors = tf.placeholder(tf.float32, (None, h, w, 3))
         region_tensors[region_name] = {'filters': filters, 'tensors': tensors, 'reuse': reuse, 'width': w, 'height': h, 'region': region, 'scope': scope}
 
-    energy_tensors, z = dagmm(region_tensors, is_training=False, encoded_dims=encoded_dims, mixtures=mixtures)
+    energy_tensors, z, *rest = dagmm(region_tensors, is_training=tf.constant(False), encoded_dims=encoded_dims, mixtures=mixtures)
 
     return region_tensors, energy_tensors, z
 
