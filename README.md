@@ -19,4 +19,7 @@ Please take a look at `train.py`, example script:
 $ python ./train.py --encoded_dims 3 --mixtures 7
 
 ```
+## Issue
+I cannot avoid the singularity issue of gmm, even if the penality term mention in the paper is added. 
+Therefore, I added some jitter to the diagonal of the covariance matrix. Not sure it's a good solution or not.  
 
