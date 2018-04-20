@@ -30,4 +30,7 @@ Therefore, I added some jitter to the diagonal of the covariance matrix. Not sur
 
 
 ## Result
-some pictures of results
+some pictures of results  
+![Alt text](pics/hist.png?raw=true "histogram")
+![Alt text](pics/test_scatter.png?raw=true "scatter plot")
+![Alt text](pics/tsne.png?raw=true "tsne")
