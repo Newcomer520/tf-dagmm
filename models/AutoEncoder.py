@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from dagmm.utils import base_conv_layer, base_dense_layer
+from models.utils import base_conv_layer, base_dense_layer
 from config import FILTERS
 
 
@@ -57,16 +57,13 @@ class AutoEncoder:
         with tf.variable_scope(name, reuse=reuse):
             self.input_tensor = input_tensor
             encoded_tensor = encoder(self.input_tensor, is_training=is_training, filters=filters)
-            shape = encoded_tensor.get_shape().as_list()
-            dim = np.prod(shape[1:])
-            net = tf.reshape(encoded_tensor, [-1, dim])
-            self.flatten_encoded = net = base_dense_layer(net, encoded_dims, name='flatten_encoded', is_training=is_training, bn=False, activation_fn=None)
-            net = base_dense_layer(net, dim, is_training=is_training)
-            net = tf.reshape(net, [-1, shape[1], shape[2], shape[3]])
-
+            encoded_shape = encoded_tensor.get_shape().as_list()
+            dims = np.prod(encoded_shape[1:])
+            encoded_gap = tf.reduce_sum(encoded_tensor, axis=[1, 2])
+            eg_dims = encoded_gap.get_shape()[1]
+            encoded_gap = tf.reshape(encoded_gap, (-1, eg_dims))
+            self.flatten_encoded = net = base_dense_layer(encoded_gap, encoded_dims, name='flatten_encoded', is_training=is_training, bn=False, activation_fn=None)
+            net = base_dense_layer(net, eg_dims, is_training=is_training, name='flatten_restored_0')
+            net = base_dense_layer(net, dims, is_training=is_training, name='flatten_restored_1')
+            net = tf.reshape(net, (-1, encoded_shape[1], encoded_shape[2], encoded_shape[2]))
             self.reconstruction = decoder(net, filters=filters, is_training=is_training)
-
-
-
-
-

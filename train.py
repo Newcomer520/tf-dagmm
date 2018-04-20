@@ -6,28 +6,33 @@ paper: https://openreview.net/forum?id=BJJLHbb0-
 import tensorflow as tf
 import os
 from config import PIN_OBJECT, MAIN_OBJECT
-from dagmm.dagmm import dagmm
-from dagmm.utils import count_trainable_parameters
+from models.dagmm import dagmm
+from models.utils import count_trainable_parameters
 import re
 import glob
 from functools import partial
 from argparse import ArgumentParser
+from models.baseline_ae import baseline_ae_model
+import json
 
 
 def train(args):
+    os.makedirs(args.logdir, exist_ok=True)
+    with open(os.path.join(args.logdir, 'config.json'), 'w') as fp:
+        json.dump(args.__dict__, fp)
     best_folder = os.path.join(args.logdir, 'best')
     best_run = -1
     best_loss = 1e12
     os.makedirs(best_folder, exist_ok=True)
     last_checkpoint = tf.train.latest_checkpoint(args.logdir)
     if last_checkpoint is not None:
-        global_step = int(re.search('-([0-9]+)', last_checkpoint).groups()[0]) + 1
+        global_step = int(re.search('-([0-9]+)$', last_checkpoint).groups()[0]) + 1
     else:
         global_step = 1
 
     regions = PIN_OBJECT if args.use_pins else MAIN_OBJECT
 
-    batch_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, batch_size=args.batch_size)
+    batch_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, args.train_folder, args.validation_folder, batch_size=args.batch_size)
     is_training_placeholder = tf.placeholder_with_default(tf.constant(True), [])
 
     region_tensors = {}
@@ -39,7 +44,7 @@ def train(args):
         region_tensors[region_name] = {'tensors': images, 'filters': filters, 'reuse': reuse, 'scope': scope}
 
     *rest, loss, loss_reconstruction, es_mean, loss_sigmas_diag = dagmm(region_tensors, is_training_placeholder, encoded_dims=args.encoded_dims, mixtures=args.mixtures,
-                                                                        lambda_1=args.lambda1, lambda_2=args.lambda2)
+                                                                        lambda_1=args.lambda1, lambda_2=args.lambda2, latent_dims=args.latent_dims)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
@@ -54,7 +59,7 @@ def train(args):
     summary_op = tf.summary.merge_all()
     count_trainable_parameters()
 
-    checkpoint_saver = tf.train.Saver(max_to_keep=100)
+    checkpoint_saver = tf.train.Saver(max_to_keep=20)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -110,12 +115,111 @@ def train(args):
                 train_writer.add_summary(summ_train, global_step + epoch_idx)
                 validate_writer.add_summary(summ_val, global_step + epoch_idx)
 
-            if (global_step + epoch_idx) % 200 == 0:
+            if (global_step + epoch_idx) % 100 == 0:
                 print('checkpoint-{} saved'.format(global_step + epoch_idx))
                 checkpoint_saver.save(sess, os.path.join(
                     args.logdir, 'checkpoint'), global_step=global_step + epoch_idx)
 
             print('{} current_epoch: {}, {}, {}, {}, val loss: {}'.format(global_step + epoch_idx, lr, les, lsd, l, val_loss))
+
+
+def train_baseline(args):
+    best_folder = os.path.join(args.logdir, 'best')
+    best_run = -1
+    best_loss = 1e12
+    os.makedirs(best_folder, exist_ok=True)
+    last_checkpoint = tf.train.latest_checkpoint(args.logdir)
+    if last_checkpoint is not None:
+        global_step = int(re.search('-([0-9]+)$', last_checkpoint).groups()[0]) + 1
+    else:
+        global_step = 1
+
+    regions = PIN_OBJECT if args.use_pins else MAIN_OBJECT
+
+    batch_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, args.train_folder, args.validation_folder, batch_size=args.batch_size)
+    is_training_placeholder = tf.placeholder_with_default(tf.constant(True), [])
+
+    region_tensors = {}
+    for region_name in regions:
+        images = batch_tensors[region_name]
+        filters = regions[region_name]['filters']
+        scope = regions[region_name]['scope']
+        reuse = regions[region_name]['reuse']
+        region_tensors[region_name] = {'tensors': images, 'filters': filters, 'reuse': reuse, 'scope': scope}
+
+    *rest, loss = baseline_ae_model(region_tensors, is_training_placeholder, args.encoded_dims)
+
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
+
+    with tf.control_dependencies(update_ops):
+        train_op = optimizer.minimize(loss)
+
+    tf.summary.scalar('loss', loss)
+    summary_op = tf.summary.merge_all()
+    count_trainable_parameters()
+
+    checkpoint_saver = tf.train.Saver(max_to_keep=100)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        if last_checkpoint is not None:
+            print('Restoring from checkpoint: {}'.format(last_checkpoint))
+            checkpoint_saver.restore(sess, last_checkpoint)
+        else:
+            print('Training models from nothing')
+
+        train_writer = tf.summary.FileWriter('{}/{}/train'.format(args.logdir, global_step), sess.graph)
+        validate_writer = tf.summary.FileWriter('{}/{}/validate'.format(args.logdir, global_step), sess.graph)
+
+        training_handle = sess.run(training_iterator.string_handle())
+        validation_handle = sess.run(validation_iterator.string_handle())
+        current_step = 0
+
+        for epoch_idx in range(args.epoch):
+            sess.run(training_iterator.initializer)
+            while True:
+                # training loop
+                try:
+                    _, l, summ_train = sess.run([train_op, loss, summary_op], feed_dict={handle: training_handle, is_training_placeholder: True})
+                    current_step += 1
+                except tf.errors.OutOfRangeError:
+                    break
+
+            val_loss = 0
+            val_cnt = 0
+            sess.run(validation_iterator.initializer)
+            while True:
+                # validation loop
+                try:
+                    vl, summ_val = sess.run([loss, summary_op], feed_dict={handle: validation_handle, is_training_placeholder: False})
+                    val_loss += vl
+                    val_cnt += 1
+                except tf.errors.OutOfRangeError:
+                    break
+
+            val_loss /= val_cnt
+
+            if val_loss < 300 and 0 < val_loss < best_loss:
+                print('best: checkpoint-{}-{}'.format(val_loss, global_step + epoch_idx))
+                previous_best = glob.glob(os.path.join(best_folder, 'checkpoint-{}-{}.*'.format(best_loss, best_run)))
+                for f in previous_best:
+                    os.remove(os.path.join(best_folder, f))
+                best_loss = val_loss
+                best_run = global_step + epoch_idx
+                checkpoint_saver.save(sess, os.path.join(
+                    best_folder, 'checkpoint-{}'.format(best_loss)), global_step=best_run)
+
+            if (global_step + epoch_idx) % 10 == 0:
+                train_writer.add_summary(summ_train, global_step + epoch_idx)
+                validate_writer.add_summary(summ_val, global_step + epoch_idx)
+
+            if (global_step + epoch_idx) % 100 == 0:
+                print('checkpoint-{} saved'.format(global_step + epoch_idx))
+                checkpoint_saver.save(sess, os.path.join(
+                    args.logdir, 'checkpoint'), global_step=global_step + epoch_idx)
+
+            print('{} current_epoch: {}, val loss: {}'.format(global_step + epoch_idx, l, val_loss))
 
 
 def parse_function(filename, regions):
@@ -154,8 +258,8 @@ def get_iterator(regions, folder, batch_size=32, buffer_size=200, num_parallel_c
 
 
 def make_dataset(regions,
-                 train_folder='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/train/OK/',
-                 validation_folder='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/test/OK/',
+                 train_folder,
+                 validation_folder,
                  batch_size=24,
                  buffer_size=1000):
     training_iterator, training_dataset = get_iterator(regions, train_folder, batch_size, buffer_size=buffer_size)
@@ -165,19 +269,31 @@ def make_dataset(regions,
     return batch_tensors, handle, training_iterator, validation_iterator
 
 
-if __name__ == '__main__':
-    parser = ArgumentParser(description='Train a dagmm.')
-    parser.add_argument('--resume', default=False, type=bool)
+def main():
+    parser = ArgumentParser()
     parser.add_argument('--epoch', default=50000, type=int)
     parser.add_argument('--encoded_dims', default=2, type=int)
-    parser.add_argument('--lambda1', default=0.1, type=float)
-    parser.add_argument('--lambda2', default=0.005, type=float)
+    parser.add_argument('--latent_dims', default=2, type=int)
+    parser.add_argument('-l1', '--lambda1', default=0.1, type=float)
+    parser.add_argument('-l2', '--lambda2', default=0.005, type=float)
     parser.add_argument('--mixtures', default=6, type=int)
     parser.add_argument('--logdir', default='/home/i-lun/works/smt/tmp2', type=str)
+    parser.add_argument('-tf', '--train_folder', default='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/train/OK/', type=str)
+    parser.add_argument('-vf', '--validation_folder', default='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/test/OK/', type=str)
     parser.add_argument('--batch_size', default=38, type=int)
     parser.add_argument('--decay_start', default=1000, type=int)
     parser.add_argument('--use_pins', dest='use_pins', action='store_true')
     parser.set_defaults(use_pins=False)
+    parser.add_argument('--baseline', dest='baseline', action='store_true')
+    parser.set_defaults(baseline=False)
     args = parser.parse_args()
 
-    train(args)
+    if args.baseline:
+        print('baseline training')
+        train_baseline(args)
+    else:
+        train(args)
+
+
+if __name__ == '__main__':
+    main()

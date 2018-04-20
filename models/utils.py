@@ -63,3 +63,18 @@ def count_trainable_parameters():
             variable_parameters *= dim.value
         total_parameters += variable_parameters
     print('number of parameters: ', total_parameters)
+
+
+def reconstruction_distances(input_tensor, reconstruction):
+    with tf.variable_scope('reconstruction_distances'):
+        squared_x = tf.reduce_sum(tf.square(input_tensor),
+                                  axis=[1, 2, 3],
+                                  name='squared_x') + 1e-12
+        squared_euclidean = tf.reduce_sum(tf.square(input_tensor - reconstruction),
+                                          axis=[1, 2, 3],
+                                          name='squared_euclidean') + 1e-12
+
+        n1 = tf.nn.l2_normalize(input_tensor, [1, 2, 3])
+        n2 = tf.nn.l2_normalize(reconstruction, [1, 2, 3])
+        cosine_similarity = tf.reduce_sum(tf.multiply(n1, n2), axis=[1, 2, 3], name='cosine_similarity')
+        return squared_x, squared_euclidean, cosine_similarity

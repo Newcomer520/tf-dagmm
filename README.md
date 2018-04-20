@@ -11,7 +11,12 @@ I've trained the model successfully on the below packages:
 I cannot provide the dataset I used due to the commercial security.
 * I've done some experiments on using several autoencoders(compressions namely in the paper) to analyze the important regions as experts suggested in each image.
 The results didn't perform well however.
-* In my case the required training time is short. The results seem good about 2000 ~ 3000 epochs
+* In my case the required training time is short. The results seem good in less than 2000 epochs
 
 ## Train
-* Please take a look at `train.py`
+Please take a look at `train.py`, example script:
+```
+$ python ./train.py --encoded_dims 3 --mixtures 7
+
+```
+

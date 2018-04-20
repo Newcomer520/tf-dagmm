@@ -5,10 +5,12 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 from config import PIN_OBJECT, MAIN_OBJECT
-from dagmm.dagmm import dagmm
+from models.dagmm import dagmm
+from models.baseline_ae import baseline_ae_model
+import datetime
 
 
-def model_for_inference(encoded_dims=2, mixtures=5, use_pins=False):
+def model_for_inference(encoded_dims=2, mixtures=5, use_pins=False, latent_dims=2, baseline=False):
     regions = PIN_OBJECT if use_pins else MAIN_OBJECT
     region_tensors = {}
     for region_name in regions:
@@ -21,9 +23,13 @@ def model_for_inference(encoded_dims=2, mixtures=5, use_pins=False):
         tensors = tf.placeholder(tf.float32, (None, h, w, 3))
         region_tensors[region_name] = {'filters': filters, 'tensors': tensors, 'reuse': reuse, 'width': w, 'height': h, 'region': region, 'scope': scope}
 
-    energy_tensors, z, *rest = dagmm(region_tensors, is_training=tf.constant(False), encoded_dims=encoded_dims, mixtures=mixtures)
-
-    return region_tensors, energy_tensors, z
+    if baseline:
+        print('use baseline model')
+        rel_dist, z, squared_dist = baseline_ae_model(region_tensors, is_training=tf.constant(False), encoded_dims=encoded_dims)
+        return region_tensors, rel_dist, z
+    else:
+        energy_tensors, z, *rest = dagmm(region_tensors, is_training=tf.constant(False), encoded_dims=encoded_dims, mixtures=mixtures, latent_dims=latent_dims)
+        return region_tensors, energy_tensors, z
 
 
 def inference(folder,
@@ -49,6 +55,8 @@ def inference(folder,
         for region_name in region_tensors:
             tensors = region_tensors[region_name]['tensors']
             current_batch[tensors] = []
+
+        starttime = datetime.datetime.now()
         for idx, image_file in enumerate(image_files):
             image = cv2.imread(image_file)
             b, g, r = cv2.split(image)
@@ -76,4 +84,7 @@ def inference(folder,
                     results['z_{}'.format(z_idx)].extend(zs[:, z_idx])
                 energies.extend(es)
 
+        endtime = datetime.datetime.now()
+        t = endtime - starttime
+        print('required inference time for {} images: {} sec'.format(len(image_files), t))
     return pd.DataFrame(results).reindex(columns=columns).sort_values(by='energy')

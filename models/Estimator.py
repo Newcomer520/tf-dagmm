@@ -1,5 +1,5 @@
 import tensorflow as tf
-from dagmm.utils import base_dense_layer
+from models.utils import base_dense_layer
 
 
 class Estimator:
