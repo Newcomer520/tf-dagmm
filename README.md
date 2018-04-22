@@ -1,5 +1,5 @@
 # tf-dagmm
-A tensorflow Implementation of [dagmm](https://openreview.net/pdf?id=BJJLHbb0-): Deep Autoencoding Gaussian Mixture Model for Unsupervised Anomaly Detection, Zong et al, 2018
+A tensorflow Implementation of [dagmm](https://openreview.net/pdf?id=BJJLHbb0-): Deep Autoencoding Gaussian Mixture Model for Unsupervised Anomaly Detection, Zong et al, 2018. Furthermore, I built the convolutional autoencoder to analyze the data of images instead of fully-connected autoencoder.
 
 ## Requirement
 I've trained the model successfully on the below packages:
