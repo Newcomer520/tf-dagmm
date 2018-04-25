@@ -27,7 +27,7 @@ def decoder(encoded_tensor, filters, is_training=True):
     :return:
     """
     reversed_filters = np.flip(filters, axis=0)
-    net = tf.reshape(encoded_tensor, [-1, 1, 1, reversed_filters[0]])
+    net = encoded_tensor
 
     with tf.variable_scope('decoder'):
         for idx, num_filter in enumerate(reversed_filters[1:]):
@@ -65,5 +65,5 @@ class AutoEncoder:
             self.flatten_encoded = net = base_dense_layer(encoded_gap, encoded_dims, name='flatten_encoded', is_training=is_training, bn=False, activation_fn=None)
             net = base_dense_layer(net, eg_dims, is_training=is_training, name='flatten_restored_0')
             net = base_dense_layer(net, dims, is_training=is_training, name='flatten_restored_1')
-            net = tf.reshape(net, (-1, encoded_shape[1], encoded_shape[2], encoded_shape[2]))
+            net = tf.reshape(net, (-1, encoded_shape[1], encoded_shape[2], encoded_shape[3]))
             self.reconstruction = decoder(net, filters=filters, is_training=is_training)

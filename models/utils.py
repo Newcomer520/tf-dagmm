@@ -34,7 +34,9 @@ def base_conv_layer(input_tensor,
                                              activation=None)
         if bn:
             net = tf.layers.batch_normalization(net, training=is_training, name='batch_normalization')
-        net = activation_fn(net)
+
+        if activation_fn is not None:
+            net = activation_fn(net)
 
     return net
 

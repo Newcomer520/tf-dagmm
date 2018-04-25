@@ -130,4 +130,3 @@ def add_noise(mat, stdev=0.001):
         noise = tf.expand_dims(noise, axis=0)
         noise = tf.tile(noise, (mat.get_shape()[0], 1, 1))
     return mat + noise
-

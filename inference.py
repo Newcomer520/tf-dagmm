@@ -1,17 +1,16 @@
 import os
 import glob
-import cv2
-import numpy as np
 import tensorflow as tf
 import pandas as pd
-from config import PIN_OBJECT, MAIN_OBJECT
+from config import get_region
 from models.dagmm import dagmm
 from models.baseline_ae import baseline_ae_model
 import datetime
+from utils import feed_image_to_tensors
 
 
-def model_for_inference(encoded_dims=2, mixtures=5, use_pins=False, latent_dims=2, baseline=False):
-    regions = PIN_OBJECT if use_pins else MAIN_OBJECT
+def model_for_inference(pattern_name, encoded_dims=2, mixtures=5, use_pins=False, latent_dims=2, baseline=False):
+    regions = get_region(pattern_name)
     region_tensors = {}
     for region_name in regions:
         w = regions[region_name]['width']
@@ -25,8 +24,8 @@ def model_for_inference(encoded_dims=2, mixtures=5, use_pins=False, latent_dims=
 
     if baseline:
         print('use baseline model')
-        rel_dist, z, squared_dist = baseline_ae_model(region_tensors, is_training=tf.constant(False), encoded_dims=encoded_dims)
-        return region_tensors, rel_dist, z
+        rel_dist, z, squared_dist = baseline_ae_model(region_tensors, is_training=tf.constant(False, name='is_training'), encoded_dims=encoded_dims)
+        return region_tensors, rel_dist, tf.concat([z, tf.reshape(rel_dist,(-1, 1))], axis=1)
     else:
         energy_tensors, z, *rest = dagmm(region_tensors, is_training=tf.constant(False), encoded_dims=encoded_dims, mixtures=mixtures, latent_dims=latent_dims)
         return region_tensors, energy_tensors, z
@@ -58,22 +57,7 @@ def inference(folder,
 
         starttime = datetime.datetime.now()
         for idx, image_file in enumerate(image_files):
-            image = cv2.imread(image_file)
-            b, g, r = cv2.split(image)
-            rgb_img = cv2.merge([r, g, b])
-            rgb_img = rgb_img.astype(np.float32) / 255.0
-            for region_name in region_tensors:
-                tensors = region_tensors[region_name]['tensors']
-                w = region_tensors[region_name]['width']
-                h = region_tensors[region_name]['height']
-                region = region_tensors[region_name]['region']
-                if region == 'all':
-                    sub_image = rgb_img
-                else:
-                    xmin, ymin, xmax, ymax = region
-                    sub_image = rgb_img[ymin:ymax, xmin:xmax, :]
-                sub_image = cv2.resize(sub_image, (h, w))
-                current_batch[tensors].append(sub_image)
+            feed_image_to_tensors(image_file, region_tensors, current_batch)
 
             if idx % batch_size == batch_size - 1 or idx == len(image_files) - 1:
                 es, zs = sess.run([energy_tensors, z], feed_dict=current_batch)

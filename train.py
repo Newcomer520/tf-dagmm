@@ -5,9 +5,10 @@ paper: https://openreview.net/forum?id=BJJLHbb0-
 
 import tensorflow as tf
 import os
-from config import PIN_OBJECT, MAIN_OBJECT
+from config import get_region
 from models.dagmm import dagmm
 from models.utils import count_trainable_parameters
+from utils import find_region
 import re
 import glob
 from functools import partial
@@ -19,7 +20,7 @@ import json
 def train(args):
     os.makedirs(args.logdir, exist_ok=True)
     with open(os.path.join(args.logdir, 'config.json'), 'w') as fp:
-        json.dump(args.__dict__, fp)
+        json.dump(args.__dict__, fp, sort_keys=True, indent=4)
     best_folder = os.path.join(args.logdir, 'best')
     best_run = -1
     best_loss = 1e12
@@ -30,10 +31,10 @@ def train(args):
     else:
         global_step = 1
 
-    regions = PIN_OBJECT if args.use_pins else MAIN_OBJECT
+    regions = get_region(args.pattern)
 
     batch_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, args.train_folder, args.validation_folder, batch_size=args.batch_size)
-    is_training_placeholder = tf.placeholder_with_default(tf.constant(True), [])
+    is_training_placeholder = tf.placeholder_with_default(tf.constant(True), [], name='is_training')
 
     region_tensors = {}
     for region_name in regions:
@@ -61,7 +62,9 @@ def train(args):
 
     checkpoint_saver = tf.train.Saver(max_to_keep=20)
 
-    with tf.Session() as sess:
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
         sess.run(tf.global_variables_initializer())
         if last_checkpoint is not None:
             print('Restoring from checkpoint: {}'.format(last_checkpoint))
@@ -134,7 +137,7 @@ def train_baseline(args):
     else:
         global_step = 1
 
-    regions = PIN_OBJECT if args.use_pins else MAIN_OBJECT
+    regions = get_region(args.pattern)
 
     batch_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, args.train_folder, args.validation_folder, batch_size=args.batch_size)
     is_training_placeholder = tf.placeholder_with_default(tf.constant(True), [])
@@ -236,24 +239,18 @@ def parse_function(filename, regions):
     output = {}
 
     for region in regions:
-        w = regions[region]['width']
-        h = regions[region]['height']
-        if regions[region]['region'] != 'all':
-            xmin, ymin, xmax, ymax = regions[region]['region']
-            region_image = image_decoded[ymin:ymax, xmin:xmax, :]
-        else:
-            region_image = image_decoded
-        region_image = tf.image.resize_images(region_image, (h, w))
-        output[region] = region_image
-
+        output[region] = find_region(image_decoded, regions[region], is_tf=True)
     return output
 
 
-def get_iterator(regions, folder, batch_size=32, buffer_size=200, num_parallel_calls=2):
+def get_iterator(regions, folder, batch_size=32, buffer_size=200, num_parallel_calls=4, is_training=True):
     files = glob.glob(os.path.join(folder, '*.jpg'))
-    dataset = tf.data.Dataset.from_tensor_slices(files)
+    dataset = tf.data.Dataset.from_tensor_slices(files).shuffle(buffer_size)
+    if is_training:
+        skip_count = len(files) % batch_size
+        dataset = dataset.skip(skip_count)
     parse_fn = partial(parse_function, regions=regions)
-    dataset = dataset.map(parse_fn, num_parallel_calls=num_parallel_calls).shuffle(buffer_size).batch(batch_size)
+    dataset = dataset.map(parse_fn, num_parallel_calls=num_parallel_calls).shuffle(buffer_size).batch(batch_size).prefetch(batch_size)
     return dataset.make_initializable_iterator(), dataset
 
 
@@ -262,8 +259,8 @@ def make_dataset(regions,
                  validation_folder,
                  batch_size=24,
                  buffer_size=1000):
-    training_iterator, training_dataset = get_iterator(regions, train_folder, batch_size, buffer_size=buffer_size)
-    validation_iterator, validation_dataset = get_iterator(regions, validation_folder, 1000, buffer_size=buffer_size)
+    training_iterator, training_dataset = get_iterator(regions, train_folder, batch_size, buffer_size=buffer_size, is_training=True)
+    validation_iterator, validation_dataset = get_iterator(regions, validation_folder, 1000, buffer_size=buffer_size, is_training=False)
     handle = tf.placeholder(tf.string)
     batch_tensors = tf.data.Iterator.from_string_handle(handle, output_types=training_dataset.output_types, output_shapes=training_dataset.output_shapes).get_next()
     return batch_tensors, handle, training_iterator, validation_iterator
@@ -271,9 +268,10 @@ def make_dataset(regions,
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument('--epoch', default=50000, type=int)
+    parser.add_argument('--epoch', default=2000, type=int)
     parser.add_argument('--encoded_dims', default=2, type=int)
     parser.add_argument('--latent_dims', default=2, type=int)
+    parser.add_argument('--pattern', default='default', type=str)
     parser.add_argument('-l1', '--lambda1', default=0.1, type=float)
     parser.add_argument('-l2', '--lambda2', default=0.005, type=float)
     parser.add_argument('--mixtures', default=6, type=int)
