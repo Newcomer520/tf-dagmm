@@ -2,6 +2,9 @@ FILTERS = [32, 64, 96, 128, 196, 256]
 FILTERS_128 = [32, 64, 80, 96, 128, 196, 256]
 FILTERS_D6 = [32, 64, 128, 196, 256, 320]
 FILTERS_D6_SMALL = [32, 64, 96, 128, 196, 256]
+FILTERS_D5 = [32, 64, 96, 128, 160]
+FILTERS_D5_SMALL = [16, 32, 64, 96, 128]
+FILTERS_D4 = [32, 64, 96, 128]
 FILTERS_SMALL = [8, 16, 32, 48, 64, 96]
 
 REGIONS_PIN = [(67, 10, 112, 69), (277, 10, 322, 69)]
@@ -23,6 +26,15 @@ OBJECT_J0601 = {
 OBJECT_J0601_SPLIT = {
     'main': {'width': 320, 'height': 64, 'region': [(0, 0, 694, 63), (0, 216, 694, 279)], 'filters': FILTERS_D6_SMALL, 'scope': 'main', 'reuse': False}
 }
+OBJECT_12567 = {
+    'main': {'width': 64, 'height': 64, 'region': 'all', 'filters': FILTERS_D5, 'scope': 'main', 'reuse': False}
+}
+OBJECT_12567_SMALL = {
+    'main': {'width': 64, 'height': 64, 'region': 'all', 'filters': FILTERS_D5_SMALL, 'scope': 'main', 'reuse': False}
+}
+OBJECT_32 = {
+    'main': {'width': 32, 'height': 32, 'region': 'all', 'filters': FILTERS_D4, 'scope': 'main', 'reuse': False}
+}
 
 
 def get_region(region_name):
@@ -31,6 +43,9 @@ def get_region(region_name):
         'J0602': OBJECT_J0602,
         'J0602P': OBJECT_J0602_PIN,
         'J0601': OBJECT_J0601,
-        'J0601_S': OBJECT_J0601_SPLIT
+        'J0601_S': OBJECT_J0601_SPLIT,
+        '12567': OBJECT_12567,
+        '12567_S': OBJECT_12567_SMALL,
+        '32': OBJECT_32,
     }
     return regions[region_name]

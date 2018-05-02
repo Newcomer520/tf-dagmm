@@ -24,15 +24,16 @@ def feed_image_to_tensors(image_file, region_tensors, current_batch):
 
 
 def find_region(image, region_def, is_tf=True):
+    h = region_def['height']
+    w = region_def['width']
+
     if region_def['region'] == 'all':
-        return image
+        assembles = image
     elif type(region_def['region']) is tuple:
         xmin, ymin, xmax, ymax = region_def
-        return image[ymin:ymax, xmin:xmax, :]
+        assembles = image[ymin:ymax, xmin:xmax, :]
     elif type(region_def['region']) is list:
         assembles = None
-        h = region_def['height']
-        w = region_def['width']
         for rd in region_def['region']:
             xmin, ymin, xmax, ymax = rd
             sub_image = image[ymin:ymax, xmin:xmax, :]
@@ -43,11 +44,12 @@ def find_region(image, region_def, is_tf=True):
                     assembles = tf.concat([assembles, sub_image], axis=0)
                 else:
                     assembles = np.concatenate([assembles, sub_image], axis=0)
-        if is_tf:
-            assembles = tf.image.resize_images(assembles, (h, w))
-        else:
-            assembles = cv2.resize(assembles, (w, h))
-        return assembles
     else:
-        return image
+        assembles = image
+
+    if is_tf:
+        assembles = tf.image.resize_images(assembles, (h, w))
+    else:
+        assembles = cv2.resize(assembles, (w, h))
+    return assembles
 

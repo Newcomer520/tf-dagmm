@@ -12,7 +12,18 @@ from inference import inference, model_for_inference
 from functools import partial
 from sklearn.manifold import TSNE
 from utils import feed_image_to_tensors
-import cv2
+import json
+from shutil import copy2
+
+
+def get_5prs(precisions, recalls):
+    candidates = [0.8, 0.85, 0.9, 0.95, 1.0]
+    results = {'recall': ['prediction']}
+    for c in candidates:
+        rs = np.where(recalls >= c)[0]
+        idx = rs[len(rs) - 1]
+        results[c] = [precisions[idx]]
+    return pd.DataFrame(results).reindex(columns=['recall', 0.8, 0.85, 0.9, 0.95, 1.0])
 
 
 def summary_report(inference_fn,
@@ -34,6 +45,7 @@ def summary_report(inference_fn,
     energies = test_results.energy
     average_precision = average_precision_score(labels, energies)
     precision, recall, th = precision_recall_curve(labels, energies, pos_label=1)
+    pr_results = get_5prs(precision, recall)
     false_positive = test_OK_results[test_OK_results.energy >= th[0]].shape[0]
 
     fig_train_scatter = plt.figure(1)
@@ -96,7 +108,7 @@ def summary_report(inference_fn,
     if not saved_in:
         plt.show()
     else:
-        os.makedirs(saved_in, exist_ok=True)
+        pr_results.to_csv(os.path.join(saved_in, 'pr_results.csv'), index=False)
         train_results.to_csv(os.path.join(saved_in, 'train_results.csv'), index=False)
         test_results.to_csv(os.path.join(saved_in, 'test_results.csv'), index=False)
         fig_train_scatter.savefig(os.path.join(saved_in, 'train_scatter.png'))
@@ -112,7 +124,8 @@ def save_reconstruction_images(checkpoint,
                                region_tensors,
                                saved_in,
                                test_OK_folder='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/test/OK/',
-                               test_NG_folder='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/test/NG/',):
+                               test_NG_folder='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/test/NG/',
+                               ext='jpg'):
     checkpoint_saver = tf.train.Saver()
 
     saved_OK_folder = os.path.join(saved_in, 'OK')
@@ -120,8 +133,8 @@ def save_reconstruction_images(checkpoint,
     os.makedirs(saved_OK_folder, exist_ok=True)
     os.makedirs(saved_NG_folder, exist_ok=True)
     handles = [
-        {'image_files': glob.glob(os.path.join(test_OK_folder, '*.jpg')), 'saved_in': saved_OK_folder},
-        {'image_files': glob.glob(os.path.join(test_NG_folder, '*.jpg')), 'saved_in': saved_NG_folder},
+        {'image_files': glob.glob(os.path.join(test_OK_folder, '*.{}'.format(ext))), 'saved_in': saved_OK_folder},
+        {'image_files': glob.glob(os.path.join(test_NG_folder, '*.{}'.format(ext))), 'saved_in': saved_NG_folder},
     ]
 
     config = tf.ConfigProto()
@@ -145,8 +158,6 @@ def save_reconstruction_images(checkpoint,
             for idx, raw_image in enumerate(raw_images):
                 image_file = handle['image_files'][idx]
                 basename = os.path.basename(image_file)[:-4]
-                # raw_image = cv2.resize(raw_image, (128, 128))
-                # raw_image = (raw_image * 255).astype(np.uint8)
                 rec_image = (rec_images[0][idx] * 255).astype(np.uint8)
                 fig, (ax1, ax2) = plt.subplots(1, 2)
                 plt.suptitle(basename, fontsize=16)
@@ -160,37 +171,35 @@ def save_reconstruction_images(checkpoint,
                 plt.close()
 
 
+def parse_config(logdir):
+    with open(os.path.join(logdir, 'config.json')) as f:
+        config = json.load(f)
+    return config
+
+
 def main():
     parser = ArgumentParser(description='Train a models.')
     parser.add_argument('--resume', default=False, type=bool)
-    parser.add_argument('--epoch', default=50000, type=int)
-    parser.add_argument('--encoded_dims', default=160, type=int)
-    parser.add_argument('--latent_dims', default=6, type=int)
-    parser.add_argument('--mixtures', default=7, type=int)
-    parser.add_argument('--logdir', default='/home/i-lun/works/smt/tmp2', type=str)
+    parser.add_argument('--logdir', default='/home/i-lun/works/smt/j0601/nsg_split/', type=str)
+    parser.add_argument('--checkpoint', default='checkpoint-700', type=str)
+    parser.add_argument('--saved_in', default='/home/i-lun/works/smt/reports/j0601/nsg_split', type=str)
     parser.add_argument('--batch_size', default=38, type=int)
-    parser.add_argument('--decay_start', default=1000, type=int)
-    parser.add_argument('--pattern', default='J0601_S', type=str)
     parser.add_argument('-tf', '--train_folder', default='/mnt/storage/P8_SMT/Connector/J0601/wuchi/split/train/OK/', type=str)
     parser.add_argument('--test_OK_folder', default='/mnt/storage/P8_SMT/Connector/J0601/wuchi/split/test/OK_and_NSG/', type=str)
     parser.add_argument('--test_NG_folder', default='/mnt/storage/P8_SMT/Connector/J0601/wuchi/split/test/NG/', type=str)
-    parser.add_argument('--use_pins', dest='use_pins', action='store_true')
-    parser.set_defaults(use_pins=False)
-    parser.add_argument('--baseline', dest='baseline', action='store_true')
-    parser.set_defaults(baseline=False)
 
     args = parser.parse_args()
+    config = parse_config(args.logdir)
+    region_tensors, energy_tensors, z = model_for_inference(config['pattern'], config['encoded_dims'], config['mixtures'], config['latent_dims'],
+                                                            config['baseline'])
 
-    # args.baseline = True
-    # checkpoint_name = 'no_use_pins/ed2_m6_l10.5/checkpoint-39.78889083862305-1821'
-    checkpoint_name = 'checkpoint-700'
-    checkpoint_path = os.path.join('/home/i-lun/works/smt/j0601/nsg_split', checkpoint_name)
-    saved_in = os.path.join('/home/i-lun/works/smt/reports/j0601/nsg_split', checkpoint_name)
+    checkpoint = os.path.join(args.logdir, args.checkpoint)
+    saved_in = os.path.join(args.saved_in, args.checkpoint)
+    os.makedirs(saved_in, exist_ok=True)
+    copy2(os.path.join(args.logdir, 'config.json'), saved_in)
 
-    region_tensors, energy_tensors, z = model_for_inference(args.pattern, args.encoded_dims, args.mixtures, args.use_pins, args.latent_dims, args.baseline)
-
-    # save_reconstruction_images(checkpoint_path, region_tensors, saved_in, test_OK_folder=args.test_OK_folder, test_NG_folder=args.test_NG_folder)
-    inference_fn = partial(inference, region_tensors=region_tensors, energy_tensors=energy_tensors, checkpoint=checkpoint_path, z=z)
+    inference_fn = partial(inference, region_tensors=region_tensors, energy_tensors=energy_tensors, checkpoint=checkpoint, z=z, ext=config['ext'], batch_size=args.batch_size)
+    # save_reconstruction_images(checkpoint, region_tensors, saved_in, args.test_OK_folder, args.test_NG_folder, config['ext'])
     summary_report(inference_fn, saved_in=saved_in, train_folder=args.train_folder, test_OK_folder=args.test_OK_folder, test_NG_folder=args.test_NG_folder)
 
 

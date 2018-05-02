@@ -9,7 +9,7 @@ import datetime
 from utils import feed_image_to_tensors
 
 
-def model_for_inference(pattern_name, encoded_dims=2, mixtures=5, use_pins=False, latent_dims=2, baseline=False):
+def model_for_inference(pattern_name, encoded_dims=2, mixtures=5, latent_dims=2, baseline=False):
     regions = get_region(pattern_name)
     region_tensors = {}
     for region_name in regions:
@@ -36,8 +36,9 @@ def inference(folder,
               energy_tensors,
               z,
               checkpoint='/home/i-lun/works/smt/tmp/checkpoint-8400',
-              batch_size=24):
-    image_files = glob.glob(os.path.join(folder, '*.jpg'))
+              batch_size=24,
+              ext='png'):
+    image_files = glob.glob(os.path.join(folder, '*.{}'.format(ext)))
     columns = ['file', 'energy']
     results = {'file': list(map(lambda f: os.path.basename(f), image_files)), 'energy': []}
     energies = results['energy']

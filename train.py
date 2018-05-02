@@ -33,7 +33,7 @@ def train(args):
 
     regions = get_region(args.pattern)
 
-    batch_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, args.train_folder, args.validation_folder, batch_size=args.batch_size)
+    batch_tensors, handle, training_iterator, validation_iterator = make_dataset(regions, args.train_folder, args.validation_folder, batch_size=args.batch_size, ext=args.ext)
     is_training_placeholder = tf.placeholder_with_default(tf.constant(True), [], name='is_training')
 
     region_tensors = {}
@@ -118,7 +118,7 @@ def train(args):
                 train_writer.add_summary(summ_train, global_step + epoch_idx)
                 validate_writer.add_summary(summ_val, global_step + epoch_idx)
 
-            if (global_step + epoch_idx) % 100 == 0:
+            if (global_step + epoch_idx) % args.save_feq == 0:
                 print('checkpoint-{} saved'.format(global_step + epoch_idx))
                 checkpoint_saver.save(sess, os.path.join(
                     args.logdir, 'checkpoint'), global_step=global_step + epoch_idx)
@@ -225,31 +225,26 @@ def train_baseline(args):
             print('{} current_epoch: {}, val loss: {}'.format(global_step + epoch_idx, l, val_loss))
 
 
-def parse_function(filename, regions):
-    """
-    :param filename:
-    :param regions:
-    :param is_training:
-    :return:
-    """
-
+def parse_function(filename, regions, ext='png'):
     image_string = tf.read_file(filename)
-    image_decoded = tf.image.decode_jpeg(image_string, channels=3)
+    if ext == 'jpg':
+        image_decoded = tf.image.decode_jpeg(image_string, channels=3)
+    else:
+        image_decoded = tf.image.decode_png(image_string, channels=3)
     image_decoded = tf.cast(image_decoded, tf.float32) / 255.0
     output = {}
-
-    for region in regions:
-        output[region] = find_region(image_decoded, regions[region], is_tf=True)
+    for region_name in regions:
+        output[region_name] = find_region(image_decoded, regions[region_name], is_tf=True)
     return output
 
 
-def get_iterator(regions, folder, batch_size=32, buffer_size=200, num_parallel_calls=4, is_training=True):
-    files = glob.glob(os.path.join(folder, '*.jpg'))
+def get_iterator(regions, folder, batch_size=32, buffer_size=200, num_parallel_calls=4, is_training=True, ext='png'):
+    files = glob.glob(os.path.join(folder, '*.{}'.format(ext)))
     dataset = tf.data.Dataset.from_tensor_slices(files).shuffle(buffer_size)
     if is_training:
         skip_count = len(files) % batch_size
         dataset = dataset.skip(skip_count)
-    parse_fn = partial(parse_function, regions=regions)
+    parse_fn = partial(parse_function, regions=regions, ext=ext)
     dataset = dataset.map(parse_fn, num_parallel_calls=num_parallel_calls).shuffle(buffer_size).batch(batch_size).prefetch(batch_size)
     return dataset.make_initializable_iterator(), dataset
 
@@ -258,9 +253,10 @@ def make_dataset(regions,
                  train_folder,
                  validation_folder,
                  batch_size=24,
-                 buffer_size=1000):
-    training_iterator, training_dataset = get_iterator(regions, train_folder, batch_size, buffer_size=buffer_size, is_training=True)
-    validation_iterator, validation_dataset = get_iterator(regions, validation_folder, 1000, buffer_size=buffer_size, is_training=False)
+                 buffer_size=1000,
+                 ext='png'):
+    training_iterator, training_dataset = get_iterator(regions, train_folder, batch_size, buffer_size=buffer_size, is_training=True, ext=ext)
+    validation_iterator, validation_dataset = get_iterator(regions, validation_folder, 1000, buffer_size=buffer_size, is_training=False, ext=ext)
     handle = tf.placeholder(tf.string)
     batch_tensors = tf.data.Iterator.from_string_handle(handle, output_types=training_dataset.output_types, output_shapes=training_dataset.output_shapes).get_next()
     return batch_tensors, handle, training_iterator, validation_iterator
@@ -279,10 +275,9 @@ def main():
     parser.add_argument('-tf', '--train_folder', default='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/train/OK/', type=str)
     parser.add_argument('-vf', '--validation_folder', default='/mnt/storage/ipython/dataset/P8_SMT/J0602-J0603/test/OK/', type=str)
     parser.add_argument('--batch_size', default=38, type=int)
-    parser.add_argument('--decay_start', default=1000, type=int)
-    parser.add_argument('--use_pins', dest='use_pins', action='store_true')
-    parser.set_defaults(use_pins=False)
     parser.add_argument('--baseline', dest='baseline', action='store_true')
+    parser.add_argument('--ext', default='png', type=str)
+    parser.add_argument('--save_feq', default=100, type=int)
     parser.set_defaults(baseline=False)
     args = parser.parse_args()
 
