@@ -1,9 +1,6 @@
 import tensorflow as tf
 
 
-kernel_initializer = tf.truncated_normal_initializer(stddev=0.02, dtype=tf.float32)
-
-
 def base_conv_layer(input_tensor,
                     filters,
                     strides=(2, 2),
@@ -20,7 +17,6 @@ def base_conv_layer(input_tensor,
                                    kernel_size=kernels,
                                    strides=strides,
                                    padding='SAME',
-                                   kernel_initializer=kernel_initializer,
                                    name='conv',
                                    activation=None)
         else:
@@ -29,7 +25,6 @@ def base_conv_layer(input_tensor,
                                              kernel_size=kernels,
                                              strides=strides,
                                              padding='SAME',
-                                             kernel_initializer=kernel_initializer,
                                              name='conv_transposed',
                                              activation=None)
         if bn:
@@ -44,8 +39,7 @@ def base_conv_layer(input_tensor,
 def base_dense_layer(input_layer, units, name='dense', is_training=True, bn=True, activation_fn=tf.nn.leaky_relu):
     with tf.variable_scope(name):
         net = tf.layers.dense(input_layer,
-                              units,
-                              kernel_initializer=kernel_initializer)
+                              units)
         if bn:
             net = tf.layers.batch_normalization(net, training=is_training, name='batch_normalization')
 
